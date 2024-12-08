@@ -8,9 +8,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
 
-from io import BytesIO
-from PIL import Image
-import numpy as np
 
 class MNISTDataset(Dataset):
     def __init__(self, dataframe, transform=None):
@@ -79,8 +76,25 @@ class LeNet5(nn.Module):
         x = self.rbf(x)
         return x
 
+class CustomLoss(nn.Module):
+    def __init__(self, j=0.1):
+        super(CustomLoss, self).__init__()
+        self.j = j
+
+    def forward(self, outputs, targets):
+        one_hot = torch.eye(outputs.size(1))[targets].to(outputs.device)
+        penalties = outputs - one_hot
+        correct_penalty = penalties[range(outputs.size(0)), targets]
+        incorrect_penalty = penalties.clone()
+        incorrect_penalty[range(outputs.size(0)), targets] = 0
+        
+        loss = 0.5 * (correct_penalty**2).mean() + self.j * torch.sum(torch.relu(-incorrect_penalty)**2) / outputs.size(0)
+        return loss
+
+
+
 def train_model(model, train_loader, test_loader, epochs=20, lr=0.001):
-    criterion = nn.CrossEntropyLoss()
+    criterion = CustomLoss(j=0.1)
 
     for epoch in range(epochs):
         running_loss = 0.0
