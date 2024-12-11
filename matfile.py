@@ -2,7 +2,7 @@ import os
 import numpy as np
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
-
+import random
 # Folder containing the .mat files
 folder_path = 'test_batches/'
 
@@ -27,7 +27,8 @@ def visualize_mat(file_path):
 
                 # Reshape each column of image_data into a 40x40 image
                 num_images = image_data.shape[1]
-                for idx in range(min(5, num_images)):  # Display up to 5 images
+                temp = random.randint(3,5)
+                for idx in range(0, num_images, temp):  # Display up to 5 images
                     image_vector = image_data[:, idx]
                     image_matrix = image_vector.reshape(40, 40).T  # Reshape and transpose
 
