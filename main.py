@@ -1,4 +1,5 @@
 import io
+import numpy as np
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F 
@@ -7,6 +8,8 @@ import rbf
 from torchvision.transforms import Compose, ToTensor, Normalize, Resize
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
+import matplotlib .pyplot as plt
+from matplotlib.ticker import MaxNLocator
 from PIL import Image
 
 class LoadDataset(Dataset):
@@ -26,7 +29,7 @@ class LoadDataset(Dataset):
         return image, torch.tensor(label, dtype=torch.long)
     
 class LeNet(nn.Module):
-    def __init__(self, num_classes=10):
+    def __init__(self):
         super(LeNet, self).__init__()
         self.C1 = LeNetConv2d(1, 6, kernel_size=5, stride=1)
         self.S2 = LeNetConv2d(6, 6, kernel_size=2, stride=2)
@@ -72,36 +75,29 @@ class LeNetLoss(nn.Module):
         super(LeNetLoss, self).__init__()
 
     def forward(self, output, labels):
-        j = torch.tensor([1.0])
+        j = torch.tensor([0.1])
         yDp = output[range(output.size(0)), labels]
-        reg = torch.log(torch.exp(-j) + torch.exp(-output).sum(dim=1))
+
+        e_incorrect = torch.exp(-output)
+        e_mask = torch.arange(10).unsqueeze(0).expand(output.size(0), -1) != labels.unsqueeze(1)
+        e_incorrect = e_incorrect * e_mask
+
+        reg = torch.log(torch.exp(-j) + e_incorrect.sum(dim=1))
         return (yDp + reg).mean()
 
-def test_model(model, test_loader):
+def test_model(model, loader):
     model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
-        for images, labels in test_loader:
+        for images, labels in loader:
             outputs = model(images)
             _, predicted = torch.min(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-    print(f"Test Accuracy: {100 * correct / total:.2f}%")
-
-def train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs=10):
-    model.train()
-    for epoch in range(num_epochs):
-        total_loss = 0.0
-        for images, labels in train_loader:
-            optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-        print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {total_loss / len(train_loader):.4f}")
-        test_model(model, test_loader)
+    
+    print(f"Accuracy {100.0 * correct/total}%")
+    return 100 - (100.0 * correct / total)
 
 def main():
     splits = {'train': 'mnist/train-00000-of-00001.parquet', 'test': 'mnist/test-00000-of-00001.parquet'}
@@ -115,12 +111,53 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
-    model = LeNet(num_classes=10)
+    model = LeNet()
     criterion = LeNetLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.02)
 
-    train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs=10)
-    test_model(model, test_loader)
+    model.train()
+    for epoch in range(20):
+        total_loss = 0.0
+        for images, labels in train_loader:
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        print(f"Epoch [{epoch+1}/{20}], Loss: {total_loss / len(train_loader):.4f}")
+
+        test_model(model, train_loader)
+        test_model(model, test_loader)
+
+    model.eval()
+    incorrect_min_act = [9999] * 10
+    incorrect_min_img = [None] * 10
+    correct_label = [0] * 10
+    with torch.no_grad():
+        for images, labels in test_loader:
+            outputs = model(images)
+            _, predicted = torch.min(outputs, 1)
+            for p, l, o, i in zip(predicted, labels, outputs, images):
+                if p != l and o[p] < incorrect_min_act[p]:
+                    incorrect_min_act[p] = o[p]
+                    incorrect_min_img[p] = i
+                    correct_label[p] = l
+
+    _, axes = plt.subplots(2, 5, figsize=(15, 6))
+    axes = axes.flatten()
+
+    for i, img in enumerate(incorrect_min_img):
+        img = img.squeeze(0)
+        img_inverted = 1 - (img - img.min()) / (img.max() - img.min())
+        
+        axes[i].imshow(img_inverted.numpy(), cmap='gray')
+        axes[i].axis('off')
+        axes[i].text(0.5, -0.1, f"Predicted {i} (Actual {correct_label[i]})", ha='center', va='center', transform=axes[i].transAxes, fontsize=12)
+
+    plt.suptitle("Most Confused Incorrect Digit Classifications", fontsize=20)
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
     main()
