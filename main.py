@@ -19,7 +19,7 @@ class LoadDataset(Dataset):
     
     def __getitem__(self, idx):
         row = self.dataframe.iloc[idx]
-        image = Image.open(io.BytesIO(row['image']['bytes']))
+        image = Image.open(io.BytesIO(row['image.bytes']))
         label = row['label']
         if self.transform:
             image = self.transform(image)
