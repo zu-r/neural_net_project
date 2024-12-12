@@ -77,7 +77,7 @@ class AffNISTTestDataset(Dataset):
                         label_data = affNISTdata['label_one_of_n'][0, 0]
                         
                         # Convert images from vector to 2D and prepare labels
-                        for j in range(image_data.shape[1]):
+                        for j in range(image_data.shape[1]//7):
                             # Reshape image to 40x40 and transpose
                             image = image_data[:, j].reshape(40, 40).T
                             
@@ -145,7 +145,7 @@ def main():
     df_train = pd.read_parquet("hf://datasets/ylecun/mnist/" + splits["train"])
     transform = Compose([Resize((32, 32)), ToTensor(), Normalize((0.5,), (0.5,))])
 
-    train_dataset = LoadDataset(df_train, transform=transform)
+    train_dataset = AffNISTTestDataset('training_batches/', transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
     test_dataset = AffNISTTestDataset('test_batches/', transform=transform)

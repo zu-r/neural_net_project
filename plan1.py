@@ -9,6 +9,8 @@ from scipy.io import loadmat
 from PIL import Image
 import io
 import os
+import matplotlib.pyplot as plt
+
 
 class LoadDataset(Dataset):
     def __init__(self, dataframe, transform=None):
@@ -56,7 +58,7 @@ class AffNISTTestDataset(Dataset):
                         label_data = affNISTdata['label_one_of_n'][0, 0]
                         
                         # Convert images from vector to 2D and prepare labels
-                        for j in range(image_data.shape[1]):
+                        for j in range(image_data.shape[1]//20):
                             # Reshape image to 40x40 and transpose
                             image = image_data[:, j].reshape(40, 40).T
                             
@@ -146,8 +148,10 @@ class LeNetWithReLUAndSTN(nn.Module):
         x = self.fc3(x)
         return x
 
-def train_model(model, train_loader, criterion, optimizer, test_loader,num_epochs=10):
+def train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs=10):
     model.train()
+    train_losses = []
+    test_errors = []
     for epoch in range(num_epochs):
         total_loss = 0.0
         for images, labels in train_loader:
@@ -157,8 +161,33 @@ def train_model(model, train_loader, criterion, optimizer, test_loader,num_epoch
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {total_loss / len(train_loader):.4f}")        
-        test_model(model, test_loader)
+        train_losses.append(total_loss / len(train_loader))
+        
+        # Calculate and store test error rate
+        accuracy = test_model(model, test_loader)
+        error_rate = 100 - accuracy
+        test_errors.append(error_rate)
+        
+        print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {total_loss / len(train_loader):.4f}")
+
+    # Plot loss and error rate
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(range(1, num_epochs+1), train_losses)
+    plt.xlabel("Epoch")
+    plt.ylabel("Training Loss")
+    plt.title("Training Loss vs. Epoch")
+
+    plt.subplot(1, 2, 2)
+    plt.plot(range(1, num_epochs+1), test_errors)
+    plt.xlabel("Epoch")
+    plt.ylabel("Test Error Rate (%)")
+    plt.title("Test Error Rate vs. Epoch")
+
+    plt.tight_layout()
+    plt.show()
+
+    return train_losses, test_errors
 
 
 def test_model(model, test_loader):
@@ -188,7 +217,7 @@ def main():
     ])
 
     # Create training dataset from Hugging Face
-    train_dataset = LoadDataset(df_train, transform=transform)
+    train_dataset = AffNISTTestDataset('training_batches/', transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
     # Create test dataset from local test_batches folder
