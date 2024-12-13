@@ -1,5 +1,6 @@
 import io
 import torch
+import random
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.transforms import Compose, ToTensor, Normalize, Resize, RandomAffine, ColorJitter, RandomApply, RandomHorizontalFlip, RandomRotation
@@ -152,12 +153,27 @@ def test_model(model, test_loader):
     # print(f"Test Accuracy: {100 * correct / total:.2f}%")
     return accuracy
 
+def custom_affine(img):
+    rotation = random.uniform(-20, 20)
+    shear = random.uniform(-0.2, 0.2)
+    scale = random.uniform(0.8, 1.2)
+    translate_x = random.uniform(-10, 10) 
+    translate_y = random.uniform(-10, 10)
+    width, height = img.size
+    return img.transform(
+        (width, height),
+        Image.AFFINE,
+        (scale, shear, translate_x, shear, scale, translate_y),
+        resample=Image.BICUBIC,
+    )
+
 def main():
     train_transform = Compose([
+        RandomApply([custom_affine], p=0.9),
+        RandomRotation(degrees=(-20, 20)),
         Resize((32, 32)),
-        RandomAffine(degrees=20, translate=(-0.2, 0.2), scale=(0.8, 1.2), shear=(-0.2, 0.2)),
         ToTensor(),
-        Normalize((0.5,), (0.5,))
+        Normalize((1.0,), (1.0,))
     ])
 
     test_transform = Compose([
