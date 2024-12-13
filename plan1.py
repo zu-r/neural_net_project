@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.transforms import Compose, ToTensor, Normalize, Resize, RandomAffine, ColorJitter, RandomApply, RandomRotation, RandomErasing
+from torchvision.transforms import Compose, ToTensor, Normalize, Resize, RandomAffine, ColorJitter, RandomApply, RandomHorizontalFlip, RandomRotation
 from torch.utils.data import Dataset, DataLoader
 from scipy.io import loadmat
 from PIL import Image
@@ -27,7 +27,7 @@ class AffNISTTestDataset(Dataset):
                     if affNISTdata is not None:
                         image_data = affNISTdata['image'][0, 0]
                         label_data = affNISTdata['label_one_of_n'][0, 0]
-                        for j in range(image_data.shape[1] // 20):
+                        for j in range(image_data.shape[1]//20):
                             image = image_data[:, j].reshape(40, 40).T
                             label = np.argmax(label_data[:, j]) if label_data.ndim > 1 else label_data[j]
                             self.images.append(image)
@@ -49,29 +49,32 @@ class AffNISTTestDataset(Dataset):
             image = self.transform(image)
         return image, torch.tensor(label, dtype=torch.long)
 
-class ImprovedLeNet(nn.Module):
+class LeNetWithDropout(nn.Module):
     def __init__(self, num_classes=10):
-        super(ImprovedLeNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=5)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.fc1 = nn.Linear(32 * 5 * 5, 120)
-        self.dropout1 = nn.Dropout(0.5)
+        super(LeNetWithDropout, self).__init__()
+        self.conv1 = nn.Conv2d(1, 6, kernel_size=5)
+        self.bn1 = nn.BatchNorm2d(6)
+        self.conv2 = nn.Conv2d(6, 16, kernel_size=5)
+        self.bn2 = nn.BatchNorm2d(16)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.dropout1 = nn.Dropout(0.3)
         self.fc2 = nn.Linear(120, 84)
-        self.Rbf = rbf.Gaussian()
+        self.dropout2 = nn.Dropout(0.3)
+        self.fc3 = nn.Linear(84, num_classes)
+        
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.max_pool2d(x, 2)
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.max_pool2d(x, 2)
-        x = x.view(-1, 32 * 5 * 5)
+        x = x.view(-1, 16 * 5 * 5)
         x = F.relu(self.fc1(x))
         x = self.dropout1(x)
-        x_features = F.relu(self.fc2(x))
-        x_features_rbf = self.Rbf(x_features)
-        return x_features_rbf
+        x = F.relu(self.fc2(x))
+        x = self.dropout2(x)
+        x = self.fc3(x)
+        return x
 
 def train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs=10):
     model.train()
@@ -82,7 +85,10 @@ def train_model(model, train_loader, criterion, optimizer, test_loader, num_epoc
         total_loss = 0.0
         correct = 0
         total = 0
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model.to(device)
         for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(images)
             loss = criterion(outputs, labels)
@@ -98,20 +104,18 @@ def train_model(model, train_loader, criterion, optimizer, test_loader, num_epoc
         test_accuracies.append(accuracy)
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {total_loss / len(train_loader):.4f}, Train Acc: {100 * correct / total:.2f}%, Test Acc: {accuracy:.2f}%")
 
-    plt.figure(figsize=(12, 6))
+    
+    plt.figure(figsize=(10, 5))
     plt.subplot(1, 2, 1)
-    plt.plot(range(1, num_epochs+1), train_losses)
+    plt.plot(range(1, num_epochs+1), 100 - np.array(train_accuracies))
     plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.ylim(0, 10)
+    plt.ylabel("Training Error Rate")
     plt.subplot(1, 2, 2)
     plt.plot(range(1, num_epochs+1), 100 - np.array(test_accuracies))
     plt.xlabel("Epoch")
     plt.ylabel("Test Error Rate")
-    plt.ylim(0, 100)
     plt.tight_layout()
     plt.show()
-
     return train_losses, train_accuracies, test_accuracies
 
 def test_model(model, test_loader):
@@ -125,26 +129,27 @@ def test_model(model, test_loader):
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
     accuracy = 100 * correct / total
+    # print(f"Test Accuracy: {100 * correct / total:.2f}%")
     return accuracy
 
 def main():
     transform = Compose([
-        ToTensor(),  
         Resize((32, 32)),
         RandomAffine(degrees=30, translate=(0.2, 0.2), scale=(0.8, 1.2), shear=15),
-        RandomRotation(15),
-        RandomErasing(p=0.3),  
+        RandomHorizontalFlip(p=0.5),
+        RandomRotation(degrees=15),
+        ToTensor(),
         Normalize((0.5,), (0.5,))
     ])
     train_dataset = AffNISTTestDataset('training_batches/', transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
     test_dataset = AffNISTTestDataset('test_batches/', transform=transform)
     test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
-    model = ImprovedLeNet(num_classes=10)
+    model = LeNetWithDropout(num_classes=10)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.02)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.015)
     train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs=10)
-    torch.save(model.state_dict(), 'ImprovedLeNet1.pth')
+    torch.save(model.state_dict(), 'LeNet1.pth')
 
 if __name__ == "__main__":
     main()
