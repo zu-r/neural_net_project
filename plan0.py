@@ -48,6 +48,7 @@ class AffNISTTestDataset(Dataset):
         label = self.labels[idx]
         if self.transform:
             image = self.transform(image)
+        image = (image + 1) * (255.0 / 2)
         return image, torch.tensor(label, dtype=torch.long)
 
 class LeNet(nn.Module):

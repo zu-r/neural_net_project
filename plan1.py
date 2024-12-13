@@ -1,3 +1,4 @@
+import io
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,10 +8,28 @@ from scipy.io import loadmat
 from PIL import Image
 import os
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import rbf
 
 torch.manual_seed(23)
+
+class MnistTrainDataset(Dataset):
+    def __init__(self, dataframe, transform=None):
+        self.dataframe = dataframe
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.dataframe)
+    
+    def __getitem__(self, idx):
+        row = self.dataframe.iloc[idx]
+        image = Image.open(io.BytesIO(row['image']['bytes']))
+        label = row['label']
+        if self.transform:
+            image = self.transform(image)
+        image = (image + 1) * (255.0 / 2)
+        return image, torch.tensor(label, dtype=torch.long)
 
 class AffNISTTestDataset(Dataset):
     def __init__(self, folder_path, transform=None):
@@ -47,6 +66,7 @@ class AffNISTTestDataset(Dataset):
         label = self.labels[idx]
         if self.transform:
             image = self.transform(image)
+        image = (image + 1) * (255.0 / 2)
         return image, torch.tensor(label, dtype=torch.long)
 
 class LeNetWithDropout(nn.Module):
@@ -133,23 +153,48 @@ def test_model(model, test_loader):
     return accuracy
 
 def main():
-    transform = Compose([
+    train_transform = Compose([
         Resize((32, 32)),
-        RandomAffine(degrees=30, translate=(0.2, 0.2), scale=(0.8, 1.2), shear=15),
-        RandomHorizontalFlip(p=0.5),
-        RandomRotation(degrees=15),
+        ToTensor(),
+        Normalize((0.5,), (0.5,)),
+        
+    ])
+
+    test_transform = Compose([
+        Resize((32, 32)),
         ToTensor(),
         Normalize((0.5,), (0.5,))
     ])
-    train_dataset = AffNISTTestDataset('training_batches/', transform=transform)
+
+    torch.set_printoptions(threshold=float('inf'), linewidth=300, precision=0)
+
+    df_train = pd.read_parquet("hf://datasets/ylecun/mnist/mnist/train-00000-of-00001.parquet")
+    train_dataset = MnistTrainDataset(df_train, transform=train_transform)
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_dataset = AffNISTTestDataset('test_batches/', transform=transform)
+    for images, l in train_loader:
+        for i in range(10):
+            print(images[i])
+            print(l[i])
+        break
+
+    print("------------------------------")
+
+    test_dataset = AffNISTTestDataset('test_batches/', transform=test_transform)
     test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+    for images, l in test_loader:
+        for i in range(10):
+            print(images[i])
+            print(l[i])
+        break
+
     model = LeNetWithDropout(num_classes=10)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.015)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.015, momentum=0.9)
+
     train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs=10)
     torch.save(model.state_dict(), 'LeNet1.pth')
 
 if __name__ == "__main__":
     main()
+
+# train_dataset = AffNISTTestDataset('training_batches/', transform=transform)
