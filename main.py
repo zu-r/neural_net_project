@@ -8,6 +8,9 @@ from torchvision.transforms import Compose, ToTensor, Normalize, Resize
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 from PIL import Image
+import matplotlib.pyplot as plt
+
+torch.manual_seed(23)
 
 class LoadDataset(Dataset):
     def __init__(self, dataframe, transform=None):
@@ -88,9 +91,13 @@ def test_model(model, test_loader):
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
     print(f"Test Accuracy: {100 * correct / total:.2f}%")
+    return (100 * correct / total)
+
 
 def train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs=10):
     model.train()
+    train_losses = []
+    test_errors = []
     for epoch in range(num_epochs):
         total_loss = 0.0
         for images, labels in train_loader:
@@ -100,8 +107,34 @@ def train_model(model, train_loader, criterion, optimizer, test_loader, num_epoc
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
+        train_losses.append(total_loss / len(train_loader))
+        
+        # Calculate and store test error rate
+        accuracy = test_model(model, test_loader)
+        error_rate = 100 - accuracy
+        test_errors.append(error_rate)
+        
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {total_loss / len(train_loader):.4f}")
-        test_model(model, test_loader)
+
+    # Plot loss and error rate
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(range(1, num_epochs+1), train_losses)
+    plt.xlabel("Epoch")
+    plt.ylabel("Training Loss")
+    plt.title("Training Loss vs. Epoch")
+
+    plt.subplot(1, 2, 2)
+    plt.plot(range(1, num_epochs+1), test_errors)
+    plt.xlabel("Epoch")
+    plt.ylabel("Test Error Rate (%)")
+    plt.title("Test Error Rate vs. Epoch")
+
+    plt.tight_layout()
+    plt.show()
+
+    return train_losses, test_errors
+
 
 def main():
     splits = {'train': 'mnist/train-00000-of-00001.parquet', 'test': 'mnist/test-00000-of-00001.parquet'}
@@ -121,6 +154,8 @@ def main():
 
     train_model(model, train_loader, criterion, optimizer, test_loader, num_epochs=10)
     test_model(model, test_loader)
+    torch.save(model.state_dict(), 'LeNet.pth')
+
 
 if __name__ == "__main__":
     main()
