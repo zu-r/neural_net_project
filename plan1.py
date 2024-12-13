@@ -47,7 +47,7 @@ class AffNISTTestDataset(Dataset):
                         image_data = affNISTdata['image'][0, 0]
                         label_data = affNISTdata['label_one_of_n'][0, 0]
                         for j in range(image_data.shape[1]//20):
-                            image = image_data[:, j].reshape(40, 40).T
+                            image = image_data[:, j].reshape(40, 40)
                             label = np.argmax(label_data[:, j]) if label_data.ndim > 1 else label_data[j]
                             self.images.append(image)
                             self.labels.append(label)
@@ -155,9 +155,9 @@ def test_model(model, test_loader):
 def main():
     train_transform = Compose([
         Resize((32, 32)),
+        RandomAffine(degrees=20, translate=(-0.2, 0.2), scale=(0.8, 1.2), shear=(-0.2, 0.2)),
         ToTensor(),
-        Normalize((0.5,), (0.5,)),
-        
+        Normalize((0.5,), (0.5,))
     ])
 
     test_transform = Compose([
